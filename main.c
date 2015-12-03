@@ -1,10 +1,11 @@
 #include <stdio.h>
 #include <openssl/aes.h>
+#include <openssl/sha.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define BLOCK_SIZE 16
-#define CBC_SIZE 64
+#define SECTOR_SIZE 512
 
 void increaseVector(unsigned char * initialVector, int sector){
     for(int i = BLOCK_SIZE-1; i != 0 ; --i){
@@ -38,6 +39,8 @@ int main(void)
         fwrite(out_block_16,BLOCK_SIZE,1,plaintext_ecb);
     }
 
+      fclose(plaintext_ecb);
+
 
     //####################
     //###### CBC #########
@@ -46,29 +49,51 @@ int main(void)
     FILE * ciphertext_cbc_plain64;
     FILE * plaintext_cbc_plain64;
     ciphertext_cbc_plain64=fopen("aes-cbc-plain64.img","rb");
-    plaintext_cbc_plain64=fopen("plaintext_aes-cbc-plain64.img","wb");
+    plaintext_cbc_plain64=fopen("plaintext_aes-cbc-plain64.img","wb");    
 
-    //FILE * ciphertext_cbc_essiv_sha256;
-    //FILE * plaintext_cbc_essiv_sha256;
-    //ciphertext_cbc_essiv_sha256=fopen("aes-cbc-essiv_sha256.img","rb");
-    //plaintext_cbc_essiv_sha256=fopen("plaintext_aes-cbc-essiv_sha256.img","wb");
-
-    unsigned char *block_64 = (unsigned char*) malloc(CBC_SIZE);
-    unsigned char *out_block_64 = (unsigned char*) malloc(CBC_SIZE);
+    unsigned char *block_512 = (unsigned char*) malloc(SECTOR_SIZE);
+    unsigned char *out_block_512 = (unsigned char*) malloc(SECTOR_SIZE);
 
     unsigned char initialVector[BLOCK_SIZE]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+
     int sector=0;
 
-    while (fread(block_64,CBC_SIZE,1,ciphertext_cbc_plain64) == 1){
-        AES_cbc_encrypt(block_64,out_block_64,CBC_SIZE,&key_D,initialVector,AES_DECRYPT);
+    while (fread(block_512,SECTOR_SIZE,1,ciphertext_cbc_plain64) == 1){
+        AES_cbc_encrypt(block_512,out_block_512,SECTOR_SIZE,&key_D,initialVector,AES_DECRYPT);
+        fwrite(out_block_512,SECTOR_SIZE,1,plaintext_cbc_plain64);
         memset(initialVector,0,BLOCK_SIZE);
-        fwrite(out_block_64,CBC_SIZE,1,plaintext_cbc_plain64);
         ++sector;
         increaseVector(initialVector,sector);
     }
 
     fclose(plaintext_cbc_plain64);
-    fclose(plaintext_ecb);
+
+
+
+    FILE * ciphertext_cbc_essiv_sha256;
+    FILE * plaintext_cbc_essiv_sha256;
+    ciphertext_cbc_essiv_sha256=fopen("aes-cbc-essiv_sha256.img","rb");
+    plaintext_cbc_essiv_sha256=fopen("plaintext_aes-cbc-essiv_sha256.img","wb");
+
+    memset(initialVector,0,BLOCK_SIZE);
+
+
+    sector=0;
+    while (fread(block_512,SECTOR_SIZE,1,ciphertext_cbc_essiv_sha256) == 1){
+
+        unsigned char hash[BLOCK_SIZE];
+        SHA256_CTX sha256;
+        SHA256_Init(&sha256);
+        SHA256_Update(&sha256, initialVector, BLOCK_SIZE);
+        SHA256_Final(hash, &sha256);
+
+        AES_cbc_encrypt(block_512,out_block_512,SECTOR_SIZE,&key_D,hash,AES_DECRYPT);
+        fwrite(out_block_512,SECTOR_SIZE,1,plaintext_cbc_essiv_sha256);
+        memset(initialVector,0,BLOCK_SIZE);
+        ++sector;
+        increaseVector(initialVector,sector);
+    }
+    fclose(plaintext_cbc_essiv_sha256);
 
 
     return 0;
