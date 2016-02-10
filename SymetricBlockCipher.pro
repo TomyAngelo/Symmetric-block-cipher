@@ -4,10 +4,17 @@ CONFIG += console
 CONFIG -= app_bundle
 CONFIG -= qt
 
-SOURCES += main.c
+SOURCES += main.c \
+    C:/Users/TomyAngelo/Desktop/aes_xts/aescrypt.c \
+    C:/Users/TomyAngelo/Desktop/aes_xts/aeskey.c \
+    C:/Users/TomyAngelo/Desktop/aes_xts/aestab.c \
+    C:/Users/TomyAngelo/Desktop/aes_xts/xts.c
 
 LIBS += -LC:/OpenSSL-Win32/lib -llibeay32
 INCLUDEPATH += C:/OpenSSL-Win32/include
+
+
+INCLUDEPATH += C:/Users/TomyAngelo/Desktop/aes_xts
 
 include(deployment.pri)
 qtcAddDeployment()
