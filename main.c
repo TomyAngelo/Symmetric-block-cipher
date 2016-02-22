@@ -11,8 +11,6 @@
 //#include <aes_xts/brg_types.h>
 //#include <aes_xts/mode_hdr.h>
 
-
-
 #define BLOCK_SIZE 16
 #define SECTOR_SIZE 512
 
@@ -26,7 +24,7 @@
 void increaseVector2(unsigned char * initialVector, int sector){
     for(int i = 0; i != BLOCK_SIZE-1 ; ++i){
           initialVector[i]=sector & 0xFF;
-          sector=sector<<8;
+          sector=sector>>8;
     }
 }
 
@@ -52,7 +50,7 @@ int main(void)
 
     while (fread(block_16,BLOCK_SIZE,1,ciphertext_ecb) == 1){
         AES_ecb_encrypt(block_16,out_block_16,&key_D,AES_DECRYPT);
-        fwrite(out_block_16,BLOCK_SIZE,1,plaintext_ecb);
+        if(fwrite(out_block_16,BLOCK_SIZE,1,plaintext_ecb)!= 1) break;
     }
 
       fclose(plaintext_ecb);
@@ -77,9 +75,10 @@ int main(void)
 
     while (fread(block_512,SECTOR_SIZE,1,ciphertext_cbc_plain64) == 1){
         AES_cbc_encrypt(block_512,out_block_512,SECTOR_SIZE,&key_D,initialVector,AES_DECRYPT);
-        fwrite(out_block_512,SECTOR_SIZE,1,plaintext_cbc_plain64);
+        if(fwrite(out_block_512,SECTOR_SIZE,1,plaintext_cbc_plain64)!= 1) break;
         memset(initialVector,0,BLOCK_SIZE);
         ++sector;
+        if(sector==INT_MAX) break;
         increaseVector2(initialVector,sector);
     }
 
@@ -102,19 +101,22 @@ int main(void)
     SHA256_Update(&sha_key, key, 2*BLOCK_SIZE);
     SHA256_Final(hash_key, &sha_key);
 
-    AES_set_decrypt_key(hash_key,256,&key_Dh);
 
-    //unsigned char nullVector[BLOCK_SIZE];
+
+    AES_set_encrypt_key(hash_key,256,&key_Dh);
 
     while (fread(block_512,SECTOR_SIZE,1,ciphertext_cbc_essiv_sha256) == 1){
-        //memset(nullVector,0,BLOCK_SIZE);
 
-        AES_cbc_encrypt(initialVector,initialVector,BLOCK_SIZE,&key_Dh,initialVector,AES_DECRYPT);
+//        unsigned char nullvec[BLOCK_SIZE]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+//        AES_cbc_encrypt(initialVector,initialVector,BLOCK_SIZE,&key_Dh,nullvec,AES_ENCRYPT);
+
+        AES_ecb_encrypt(initialVector,initialVector,&key_Dh,AES_ENCRYPT);
 
         AES_cbc_encrypt(block_512,out_block_512,SECTOR_SIZE,&key_D,initialVector,AES_DECRYPT);
-        fwrite(out_block_512,SECTOR_SIZE,1,plaintext_cbc_essiv_sha256);
+        if(fwrite(out_block_512,SECTOR_SIZE,1,plaintext_cbc_essiv_sha256)!=1 ) break;
         memset(initialVector,0,BLOCK_SIZE);
         ++sector;
+        if(sector==INT_MAX) break;
         increaseVector2(initialVector,sector);
 
     }
@@ -150,7 +152,7 @@ int main(void)
 
 //    while (fread(block_xts,SECTOR_SIZE,1,ciphertext_xts) == 1){
 //        xts_decrypt_sector( block_xts, vector,SECTOR_SIZE, &xtsContext );
-//        fwrite(block_xts,SECTOR_SIZE,1,plaintext_xts);
+//        if(fwrite(block_xts,SECTOR_SIZE,1,plaintext_xts) != 1) break ;
 //        ++vector;
 //    }
 
