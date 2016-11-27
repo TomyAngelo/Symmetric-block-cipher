@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <openssl/aes.h>
 #include <openssl/sha.h>
-#include <openssl/modes.h>
 #include <openssl/evp.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +9,11 @@
 #define BLOCK_SIZE 16
 #define SECTOR_SIZE 512
 #define SECTOR_SHIFT 9
-
+/**
+ * @funkcia pocita logaritmus
+ * @parameter x je cislo z ktoreho je pocitany
+ * @navratova hodnota je logartmus z cisla x
+ */
 static int int_log2(unsigned int x)
 {
     int r = 0;
@@ -18,30 +21,48 @@ static int int_log2(unsigned int x)
         r++;
     return r;
 }
-
+/**
+ * @funkcia nastavuje parametru initialVector cislo sektora ako hodnotu
+ * @parameter initialVector je 32 bitove cislo
+ * @parameter sector je cislo sektora
+ */
 void increaseVector32(unsigned char * initialVector, int sector){
     for(int i = 0; i != BLOCK_SIZE/2-1 ; ++i){
-          initialVector[i]=sector & 0xFF;
-          sector=sector>>8;
+          initialVector[i] = sector & 0xFF;
+          sector = sector >> 8;
     }
 }
+/**
+ * @funkcia nastavuje parametru initialVector cislo sektora ako hodnotu
+ * @parameter initialVector je 64 bitove cislo
+ * @parameter sector je cislo sektora
+ */
 void increaseVector64(unsigned char * initialVector, int sector){
     for(int i = 0; i != BLOCK_SIZE-1 ; ++i){
-          initialVector[i]=sector & 0xFF;
-          sector=sector>>8;
+          initialVector[i] = sector & 0xFF;
+          sector = sector >> 8;
     }
 }
-
+/**
+ * @funkcia nastavuje benbi vektor
+ * @parameter initialVector je 64 bitove cislo
+ * @parameter sector je cislo sektora
+ */
 void setBenbiIV(unsigned char * initialVector, int sector){
     for(int i = BLOCK_SIZE-1; i != 0 ; --i){
-          initialVector[i]=sector & 0xFF;
-          sector=sector>>8;
+          initialVector[i] = sector & 0xFF;
+          sector = sector >> 8;
     }
 }
-
-void loadKey(unsigned char* key,char* keyFile,int size){
-    FILE * file_key=fopen(keyFile,"rb");
-    if(file_key==NULL){
+/**
+ * @funkcia nacitava kluc zo suboru
+ * @parameter key je parameter do ktoreho sa nacitava kluc
+ * @parameter keyFile obsahuje cestu k suboru
+ * @parameter size je velkost kluca ktory ma byt nacitany
+ */
+void loadKey(unsigned char* key, char* keyFile, int size){
+    FILE * file_key = fopen(keyFile,"rb");
+    if(file_key == NULL){
         fprintf(stderr, "Subor s klucom sa nepodarilo otvorit\n" );
         exit(1);
     }
@@ -51,52 +72,72 @@ void loadKey(unsigned char* key,char* keyFile,int size){
     }
     return ;
 }
-
-char* parseString(char* input){
-    int d=strlen(input);
-    if(d<2){
-        fprintf(stderr, "Nebola zadana ziadna hodnota\n");
-        exit(1);
-    }
-    input[d-1]='\0';
-    return input;
-}
-
-void setInitialVector(char * nameOfIV,unsigned char * initialVector, int sector, AES_KEY *key_hash,int benbi_shift ){
-    if(strcmp(nameOfIV,"plain")== 0){
+/**
+ * @funkcia nastavuje inicializacny vektor
+ * @parameter nameOfIV je nazov inicializacneho vektora
+ * @parameter initialVector je inicializacny vektor
+ * @parameter sector je cislo sektora na disku
+ * @parameter key_hash je potrebny pri nastaveni vektora essiv, obsahuje zahasovany kluc funkciou SHA256
+ * @parameter benbi_shift je hodnota posunu pre benbi vektor
+ */
+void setInitialVector(char * nameOfIV, unsigned char * initialVector, int sector, AES_KEY *key_hash, int benbi_shift ){
+    if(strcmp(nameOfIV,"plain") == 0){
         memset(initialVector,0,BLOCK_SIZE/2);
     }else{
         memset(initialVector,0,BLOCK_SIZE);
     }
 
-    if(strcmp(nameOfIV,"plain")== 0){
+    if(strcmp(nameOfIV,"plain") == 0){
         increaseVector32(initialVector,sector);
     }
-    if(strcmp(nameOfIV,"plain64")== 0){
+    if(strcmp(nameOfIV,"plain64") == 0){
         increaseVector64(initialVector,sector);
     }
-    if(strcmp(nameOfIV,"essiv")== 0){
+    if(strcmp(nameOfIV,"essiv") == 0){
         increaseVector64(initialVector,sector);
         AES_ecb_encrypt(initialVector,initialVector,key_hash,AES_ENCRYPT);
     }
-    if(strcmp(nameOfIV,"benbi")== 0){
-        setBenbiIV(initialVector,(sector << benbi_shift)+1);
+    if(strcmp(nameOfIV,"benbi") == 0){
+        setBenbiIV(initialVector,(sector << benbi_shift) + 1);
     }
 }
-
-void cbcEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, char enc, char *iv,int sizeFrom,int sizeTo ){
+/**
+ * @funkcia zahasuje kluc hasovaciou funkciou SHA256
+ * @parameter keyStr je retazec obsahujuci kluc
+ * @parameter size je velkost kluca
+ * @parameter key_hash je vystupny parameter v ktorom po skonceni funkcie bude zahasovany kluc
+ */
+void SHA256hashing(unsigned char * keyStr, int size, AES_KEY *key_hash){
+    unsigned char hash_key[2*BLOCK_SIZE];
+    SHA256_CTX sha_key;
+    SHA256_Init(&sha_key);
+    SHA256_Update(&sha_key, keyStr, size);
+    SHA256_Final(hash_key, &sha_key);
+    AES_set_encrypt_key(hash_key,256,key_hash);
+}
+/**
+ * @funkcia sifruje alebo desifruje obraz disku pomocou sifry AES-CBC
+ * @parameter inputFile je vstupny subor ktory sa ma sifrovat alebo desifrovat
+ * @parameter output je vystupny subor po spracovani suboru inputFile
+ * @parameter keyStr je retazec obsahujuci kluc
+ * @parameter enc je znak toho ci sa ma vstupny subor sifrovat alebo desifrovat
+ * @parameter iv je nazov inicializacneho vektora
+ * @parameter sizeFrom je cislo sektora od ktoreho sa ma zacat sifrovat alebo desifrovat
+ * @parameter sizeTo je cislo sektora po ktory ma prebehnut sifrovanie alebo desifrovanie
+ */
+void cbcEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, char enc, char *iv, int sizeFrom, int sizeTo ){
     unsigned char *block = (unsigned char*) malloc(SECTOR_SIZE);
     unsigned char *out_block = (unsigned char*) malloc(SECTOR_SIZE);
-    unsigned char* tempvector=(unsigned char*) malloc(BLOCK_SIZE);
     unsigned char* initialVector;
 
-    if(strcmp(iv,"plain")== 0){
-        initialVector = (unsigned char*) realloc(tempvector,(BLOCK_SIZE/2* sizeof(unsigned char)));
+    if(strcmp(iv,"plain") == 0){
+        initialVector = (unsigned char*) malloc(BLOCK_SIZE/2);
         memset(initialVector,0,BLOCK_SIZE/2);
     }else{
-        initialVector = (unsigned char*) realloc(tempvector,(BLOCK_SIZE* sizeof(unsigned char)));
+        initialVector = (unsigned char*) malloc(BLOCK_SIZE);
         memset(initialVector,0,BLOCK_SIZE);
     }
+
 
     AES_KEY key;
     AES_KEY key_hash;
@@ -108,28 +149,23 @@ void cbcEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, char enc
         AES_set_decrypt_key(keyStr,256,&key);
     }
 
-    if(strcmp(iv,"essiv")==0){
-        unsigned char hash_key[2*BLOCK_SIZE];
-        SHA256_CTX sha_key;
-        SHA256_Init(&sha_key);
-        SHA256_Update(&sha_key, keyStr, 2*BLOCK_SIZE);
-        SHA256_Final(hash_key, &sha_key);
-        AES_set_encrypt_key(hash_key,256,&key_hash);
+    if(strcmp(iv,"essiv") == 0){
+        SHA256hashing(keyStr,2*BLOCK_SIZE,&key_hash);
     }
+
     int benbi_shift;
-    if(strcmp(iv,"benbi")==0){
-      int log=int_log2(BLOCK_SIZE);
+    if(strcmp(iv,"benbi") == 0){
+      int log = int_log2(BLOCK_SIZE);
       if(log > SECTOR_SHIFT){
           fprintf(stderr, "Log je vacsi ako posun\n" );
           exit(1);
       }
-      benbi_shift=SECTOR_SHIFT-log;
+      benbi_shift = SECTOR_SHIFT - log;
     }
 
-    int sector=0;
+    int sector = 0;
     while(sector < sizeFrom){
-        fread(block,SECTOR_SIZE,1,inputFile);
-        //if(fwrite(block,SECTOR_SIZE,1,output)!= 1) break; //maybe
+        fread(block,SECTOR_SIZE,1,inputFile);       
         ++sector;
     }
 
@@ -144,57 +180,57 @@ void cbcEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, char enc
             AES_cbc_encrypt(block,out_block,SECTOR_SIZE,&key,initialVector,AES_DECRYPT);
         }
 
-        if(fwrite(out_block,SECTOR_SIZE,1,output)!= 1) break;
-
+        if(fwrite(out_block,SECTOR_SIZE,1,output) != 1) break;
         ++sector;
         if(sector == INT_MAX || (sector > sizeTo && sizeTo != 0)) break;
 
     }
     free(block);
     free(out_block);
-    free(initialVector);
-    fclose(output);
+    free(initialVector);    
 }
-
-void xtsEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, char enc, char *iv,int sizeFrom,int sizeTo){
-
+/**
+ * @funkcia sifruje alebo desifruje obraz disku pomocou sifry AES-XTS
+ * @parameter inputFile je vstupny subor ktory sa ma sifrovat alebo desifrovat
+ * @parameter output je vystupny subor po spracovani suboru inputFile
+ * @parameter keyStr je retazec obsahujuci kluc
+ * @parameter enc je znak toho ci sa ma vstupny subor sifrovat alebo desifrovat
+ * @parameter iv je nazov inicializacneho vektora
+ * @parameter sizeFrom je cislo sektora od ktoreho sa ma zacat sifrovat alebo desifrovat
+ * @parameter sizeTo je cislo sektora po ktory ma prebehnut sifrovanie alebo desifrovanie
+ */
+void xtsEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, char enc, char *iv, int sizeFrom, int sizeTo){
     unsigned char *block = (unsigned char*) malloc(SECTOR_SIZE);
     unsigned char *out_block = (unsigned char*) malloc(SECTOR_SIZE);
-    unsigned char* tempvector=(unsigned char*) malloc(BLOCK_SIZE);
     unsigned char* initialVector;
 
-    if(strcmp(iv,"plain")== 0){
-        initialVector = (unsigned char*) realloc(tempvector,(BLOCK_SIZE/2* sizeof(unsigned char)));
+    if(strcmp(iv,"plain") == 0){
+        initialVector = (unsigned char*) malloc(BLOCK_SIZE/2);
         memset(initialVector,0,BLOCK_SIZE/2);
     }else{
-        initialVector = (unsigned char*) realloc(tempvector,(BLOCK_SIZE* sizeof(unsigned char)));
+        initialVector = (unsigned char*) malloc(BLOCK_SIZE);
         memset(initialVector,0,BLOCK_SIZE);
     }
 
     AES_KEY key_hash;
-
-    if(strcmp(iv,"essiv")==0){
-        unsigned char hash_key[2*BLOCK_SIZE];
-        SHA256_CTX sha_key;
-        SHA256_Init(&sha_key);
-        SHA256_Update(&sha_key, keyStr, 2*BLOCK_SIZE);
-        SHA256_Final(hash_key, &sha_key);
-        AES_set_encrypt_key(hash_key,256,&key_hash);
+    if(strcmp(iv,"essiv") == 0){
+        SHA256hashing(keyStr,2*BLOCK_SIZE,&key_hash);
     }
+
     int benbi_shift;
-    if(strcmp(iv,"benbi")==0){
-      int log=int_log2(BLOCK_SIZE);
+    if(strcmp(iv,"benbi") == 0){
+      int log = int_log2(BLOCK_SIZE);
       if(log > SECTOR_SHIFT){
           fprintf(stderr, "Log je vacsi ako posun\n" );
           exit(1);
       }
-      benbi_shift=SECTOR_SHIFT-log;
+      benbi_shift = SECTOR_SHIFT - log;
     }
 
     EVP_CIPHER_CTX *ctx;
     int len;
 
-    int sector=0;
+    int sector = 0;
     while(sector < sizeFrom){
         fread(block,SECTOR_SIZE,1,inputFile);
         ++sector;
@@ -222,83 +258,60 @@ void xtsEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, char enc
     }
 
     EVP_CIPHER_CTX_free(ctx);
+    free(initialVector);
     free(block);
-    free(out_block);
-    fclose(output);
+    free(out_block);    
 }
 
-int main(void)
-{
-    if(INT_MAX < 2048) puts("WHAT!!!!!??");
-    puts("Zadajte cestu k suboru: ");
-    char pathToFile[255];
-    fgets(pathToFile,255,stdin);
-    char fileName[strlen(pathToFile)];
-    strcpy(fileName , parseString(pathToFile) );
+int main(int argc, char *argv[]){
+
+    if(argc != 7 && argc != 9){
+        fprintf(stderr, "Nespravny pocet parametrov\n" );
+        exit(1);
+    }
+
     FILE * inputFile;
-    inputFile=fopen(fileName,"rb");
-    if(inputFile==NULL){
+    inputFile = fopen(argv[1],"rb");
+    if(inputFile == NULL){
         fprintf(stderr, "Subor sa nepodarilo otvorit\n" );
         exit(1);
     }
 
-    puts("Zadajte cestu ku klucu: ");
-    char pathToKey[255];
-    fgets(pathToKey,255,stdin);
-    char keyName[strlen(pathToKey)];
-    strcpy(keyName , parseString(pathToKey) );
     unsigned char key[2*BLOCK_SIZE];
-    loadKey(key,keyName,2*BLOCK_SIZE);
+    loadKey(key,argv[2],2*BLOCK_SIZE);
 
-
-    puts("Chcete sifrovat[e] alebo desifrovat[d] ? ");
-    char tempEncryption[10];
-    fgets(tempEncryption,10,stdin);
-    if(strlen(tempEncryption)> 2 || !(tempEncryption[0] =='e' || tempEncryption[0] =='d') ){
-        fprintf(stderr, "Bol zadany zly znak alebo viac znakov\n" );
+    if(strlen(argv[3]) != 1 || !(argv[3][0] == 'e' || argv[3][0] == 'd') ){
+        fprintf(stderr, "Bol zadany zly znak alebo viac znakov v tretom parametri\n" );
         exit(1);
     }
-    char encryption=tempEncryption[0];
+    char encryption=argv[3][0];
 
-    puts("Zadajte mod ktory ma byt pouzity: CBC[cbc] alebo XTS[xts]? ");
-    char tempMode[10];
-    fgets(tempMode,10,stdin);
-    if(strlen(tempMode) != 4){
+    if(strlen(argv[4]) != 3 || !(strcmp(argv[4] , "cbc") == 0 || strcmp(argv[4] , "xts") == 0)){
         fprintf(stderr, "Zle zadany mod\n" );
         exit(1);
     }
-    char mode[strlen(tempMode)];
-    strcpy(mode,parseString(tempMode));
-    if(strcmp(mode,"cbc") != 0 && strcmp(mode,"xts") != 0){
-        fprintf(stderr, "Zle zadany mod\n" );
-        exit(1);
-    }
+    char mode[strlen(argv[4])];
+    strcpy(mode,argv[4]);
 
-
-    puts("Zadajte inicializacny vektor ktory ma byt pouzity: \n null\n plain\n plain64\n essiv\n benbi\n");
-    char tempIv[10];
-    fgets(tempIv,10,stdin);
-    char iv[strlen(tempIv)];
-    strcpy(iv,parseString(tempIv));
-    if(strcmp(iv,"null") != 0 && strcmp(iv,"plain") != 0 && strcmp(iv,"plain64") != 0 &&
-            strcmp(iv,"essiv") != 0 && strcmp(iv,"benbi") != 0){
+    if(strcmp(argv[5],"null") != 0 && strcmp(argv[5],"plain") != 0 && strcmp(argv[5],"plain64") != 0 &&
+            strcmp(argv[5],"essiv") != 0 && strcmp(argv[5],"benbi") != 0){
         fprintf(stderr, "Zle zadany inicializacny vektor\n" );
         exit(1);
     }
+    char iv[strlen(argv[5])];
+    strcpy(iv,argv[5]);
 
-
-    puts("Chcete sifrovat/desifrovat cely subor? [y]/[n]");
-    char allFile;
-    scanf("%c",&allFile);
-    if(allFile != 'y' && allFile != 'n'){
-        fprintf(stderr, "Zly znak bol zadany\n" );
+    if(strlen(argv[6]) != 1 || !(argv[6][0] == 'y' || argv[6][0] == 'n') ){
+        fprintf(stderr, "Bol zadany zly znak alebo viac znakov v siestom parametri\n" );
         exit(1);
     }
-    int sectorFrom=0;
-    int sectorTo=0;
+    char allFile=argv[6][0];
+
+    int sectorFrom = 0;
+    int sectorTo = 0;
     if(allFile == 'n'){
-        puts("Zadajte rozmedzie sektorov: (napr. 1024 4096)");
-        scanf("%d %d",&sectorFrom,&sectorTo);
+         sectorFrom=argv[7][0];
+         sectorTo=argv[8][0];
     }
     if(sectorFrom > sectorTo && sectorTo != 0){
         fprintf(stderr, "Zle zadane rozmedzie sektorov \n" );
@@ -307,20 +320,25 @@ int main(void)
 
     FILE * output;
     output=fopen("output.img","wb");
-    if(inputFile==NULL){
+    if(output == NULL){
         fprintf(stderr, "Subor sa nepodarilo vytvorit\n" );
         exit(1);
     }
 
-
-    if(strcmp(mode,"cbc")==0){
+    if(strcmp(mode,"cbc") == 0){
         cbcEncryption(inputFile, output,key,encryption,iv,sectorFrom,sectorTo);
     }
-    if(strcmp(mode,"xts")==0){
+    if(strcmp(mode,"xts") == 0){
         xtsEncryption(inputFile,output,key,encryption,iv,sectorFrom,sectorTo);
     }
+    fclose(inputFile);
+    fclose(output);
 
-    printf("Sifrovanie/desifrovanie prebehlo uspesne. Vysledkom je subor output.img\n");
+    if(encryption == 'e'){
+        printf("Sifrovanie prebehlo uspesne. Vysledkom je subor output.img\n");
+    }else{
+        printf("Desifrovanie prebehlo uspesne. Vysledkom je subor output.img\n");
+    }
     return 0;
 }
 
