@@ -129,13 +129,13 @@ int SHA256hashing(unsigned char * keyStr, int size, AES_KEY *key_hash){
 /**
  * @brief free alocated memory
  */
-void freeAll(EVP_CIPHER_CTX* ctx, unsigned char **block, unsigned char **out_block, unsigned char **initialVector ){
+void freeAll(EVP_CIPHER_CTX* ctx, unsigned char *block, unsigned char *out_block, unsigned char *initialVector ){
     if(ctx != NULL){
         EVP_CIPHER_CTX_free(ctx);
     }
-    free(*initialVector);
-    free(*block);
-    free(*out_block);
+    free(initialVector);
+    free(block);
+    free(out_block);
 }
 
 /**
@@ -168,14 +168,14 @@ void cbcEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, int keyS
     if(enc == 'e'){
         if(AES_set_encrypt_key(keyStr,keySize*8,&key) != 0){
             fprintf(stderr, "Setting encrypt key failed\n" );
-            freeAll(NULL,&block,&out_block,&initialVector);
+            freeAll(NULL,block,out_block,initialVector);
             exit(1);
         }
     }
     if(enc == 'd'){
         if(AES_set_decrypt_key(keyStr,keySize*8,&key) != 0){
             fprintf(stderr, "Setting decrypt key failed\n" );
-            freeAll(NULL,&block,&out_block,&initialVector);
+            freeAll(NULL,block,out_block,initialVector);
             exit(1);
         }
     }
@@ -183,7 +183,7 @@ void cbcEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, int keyS
     if(strcmp(iv,"essiv") == 0){
         if(SHA256hashing(keyStr,keySize,&key_hash) !=0 ){
            fprintf(stderr, "Hashing failed\n" );
-           freeAll(NULL,&block,&out_block,&initialVector);
+           freeAll(NULL,block,out_block,initialVector);
            exit(1);
         }
     }
@@ -193,7 +193,7 @@ void cbcEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, int keyS
         int log = int_log2(BLOCK_SIZE);
         if(log > SECTOR_SHIFT){
             fprintf(stderr, "Log is bigger than shift\n" );
-            freeAll(NULL,&block,&out_block,&initialVector);
+            freeAll(NULL,block,out_block,initialVector);
             exit(1);
         }
       benbi_shift = SECTOR_SHIFT - log;
@@ -218,14 +218,14 @@ void cbcEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr, int keyS
 
         if(fwrite(out_block,SECTOR_SIZE,1,output) != 1) {
             fprintf(stderr, "Writing to file failed\n" );
-            freeAll(NULL,&block,&out_block,&initialVector);
+            freeAll(NULL,block,out_block,initialVector);
             exit(1);
         }
         ++sector;
         if(sector == INT_MAX || (sector > sizeTo && sizeTo != 0)) break;
 
     }
-     freeAll(NULL,&block,&out_block,&initialVector);
+     freeAll(NULL,block,out_block,initialVector);
 }
 
 /**
@@ -256,7 +256,7 @@ void xtsEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr,int keySi
     if(strcmp(iv,"essiv") == 0){
         if(SHA256hashing(keyStr,keySize,&key_hash) !=0 ){
            fprintf(stderr, "Hashing failed\n" );
-           freeAll(NULL,&block,&out_block,&initialVector);
+           freeAll(NULL,block,out_block,initialVector);
            exit(1);
         }
     }
@@ -266,7 +266,7 @@ void xtsEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr,int keySi
         int log = int_log2(BLOCK_SIZE);
         if(log > SECTOR_SHIFT){
             fprintf(stderr, "Log is bigger than shift\n" );
-            freeAll(NULL,&block,&out_block,&initialVector);
+            freeAll(NULL,block,out_block,initialVector);
             exit(1);
         }
       benbi_shift = SECTOR_SHIFT - log;
@@ -284,9 +284,9 @@ void xtsEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr,int keySi
     setInitialVector(iv,initialVector,sector,&key_hash,benbi_shift);
 
     while (fread(block,SECTOR_SIZE,1,inputFile) == 1){
-        if(! (ctx = EVP_CIPHER_CTX_new())){
+        if(!(ctx = EVP_CIPHER_CTX_new())){
            fprintf(stderr, "Initialization context failed\n" );
-           freeAll(ctx,&block,&out_block,&initialVector);
+           freeAll(NULL,block,out_block,initialVector);
            exit(1);
         }
         setInitialVector(iv,initialVector,sector,&key_hash,benbi_shift);
@@ -294,61 +294,64 @@ void xtsEncryption(FILE* inputFile,FILE* output, unsigned char* keyStr,int keySi
             if(keySize == 32){
                 if(EVP_EncryptInit(ctx, EVP_aes_128_xts(), keyStr, initialVector) != 1){
                     fprintf(stderr, "Encryption failed(EVP_EncryptInit)\n" );
-                    freeAll(ctx,&block,&out_block,&initialVector);
+                    freeAll(ctx,block,out_block,initialVector);
                     exit(1);
                 }
             }else{
                 if(EVP_EncryptInit(ctx, EVP_aes_256_xts(), keyStr, initialVector) != 1){
                     fprintf(stderr, "Encryption failed(EVP_EncryptInit)\n" );
-                    freeAll(ctx,&block,&out_block,&initialVector);
+                    freeAll(ctx,block,out_block,initialVector);
                     exit(1);
                 }
             }
             if(EVP_EncryptUpdate(ctx, out_block, &len, block, SECTOR_SIZE) != 1){
                 fprintf(stderr, "Encryption failed(EVP_EncryptUpdate)\n" );
-                freeAll(ctx,&block,&out_block,&initialVector);
+                freeAll(ctx,block,out_block,initialVector);
                 exit(1);
             }
             if(EVP_EncryptFinal(ctx, out_block + len, &len) != 1){
                 fprintf(stderr, "Encryption failed(EVP_EncryptFinal)\n" );
-                freeAll(ctx,&block,&out_block,&initialVector);
+                freeAll(ctx,block,out_block,initialVector);
                 exit(1);
             }
         }else if(enc == 'd'){
             if(keySize == 32){
                 if(EVP_DecryptInit(ctx, EVP_aes_128_xts(), keyStr, initialVector) != 1){
                     fprintf(stderr, "Decryption failed(EVP_DecryptInit)\n" );
-                    freeAll(ctx,&block,&out_block,&initialVector);
+                    freeAll(ctx,block,out_block,initialVector);
                     exit(1);
                 }
             }else{
                 if(EVP_DecryptInit(ctx, EVP_aes_256_xts(), keyStr, initialVector) != 1){
                     fprintf(stderr, "Decryption failed(EVP_DecryptInit)\n" );
-                    freeAll(ctx,&block,&out_block,&initialVector);
+                    freeAll(ctx,block,out_block,initialVector);
                     exit(1);
                 }
             }
             if(EVP_DecryptUpdate(ctx, out_block, &len, block, SECTOR_SIZE) != 1){
                 fprintf(stderr, "Decryption failed(EVP_DecryptUpdate)\n" );
-                freeAll(ctx,&block,&out_block,&initialVector);
+                freeAll(ctx,block,out_block,initialVector);
                 exit(1);
             }
             if(EVP_DecryptFinal(ctx, out_block + len, &len) != 1){
                 fprintf(stderr, "Decryption failed(EVP_DecryptFinal)\n" );
-                freeAll(ctx,&block,&out_block,&initialVector);
+                freeAll(ctx,block,out_block,initialVector);
                 exit(1);
             }
         }
         if(fwrite(out_block,SECTOR_SIZE,1,output) != 1) {
             fprintf(stderr, "Writing to file failed\n" );
-            freeAll(ctx,&block,&out_block,&initialVector);
+            freeAll(ctx,block,out_block,initialVector);
             exit(1);
         }
 
         ++sector;
         if(sector == INT_MAX || (sector > sizeTo && sizeTo != 0)) break;
+        if(ctx != NULL){
+            EVP_CIPHER_CTX_free(ctx);
+          }
     }
-    freeAll(ctx,&block,&out_block,&initialVector);
+    freeAll(NULL,block,out_block,initialVector);
 }
 
 int main(int argc, char *argv[]){
